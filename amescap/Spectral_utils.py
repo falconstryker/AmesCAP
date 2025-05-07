@@ -545,3 +545,13 @@ def zonal_construct(COEFFS_flat, VAR_shape, btype=None, low_highcut=None):
         VAR[ii, :, :] = pyshtools.expand.MakeGridDH(COEFFS_flat[ii, :, :],
                                                   sampling = 2)
     return  VAR.reshape(VAR_shape)
+
+
+def init_shtools():
+    """
+    Check if pyshtools is available and return its availability status
+    
+    :return: True if pyshtools is available, False otherwise
+    :rtype: bool
+    """
+    return PYSHTOOLS_AVAILABLE

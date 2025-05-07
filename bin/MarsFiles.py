@@ -339,7 +339,7 @@ parser.add_argument('-hps', '--high_pass_spatial', action=ExtAction,
     nargs='+', type=int,
     help=(
         f"{Red}"
-        f"REQUIRES SPECIAL INSTALL: See 'Spectral Analysis "
+        f"REQUIRES SPECIAL INSTALL:\nSee 'Spectral Analysis "
         f"Capabilities' in the installation instructions at \n"
         f"https://amescap.readthedocs.io/en/latest/installation.html"
         f"{Nclr}\n"
@@ -359,7 +359,7 @@ parser.add_argument('-lps', '--low_pass_spatial', action=ExtAction,
     nargs='+', type=int,
     help=(
         f"{Red}"
-        f"REQUIRES SPECIAL INSTALL: See 'Spectral Analysis "
+        f"REQUIRES SPECIAL INSTALL:\nSee 'Spectral Analysis "
         f"Capabilities' in the installation instructions at \n"
         f"https://amescap.readthedocs.io/en/latest/installation.html"
         f"{Nclr}\n"
@@ -379,7 +379,7 @@ parser.add_argument('-bps', '--band_pass_spatial', action=ExtAction,
     nargs='+', type=int,
     help=(
         f"{Red}"
-        f"REQUIRES SPECIAL INSTALL: See 'Spectral Analysis "
+        f"REQUIRES SPECIAL INSTALL:\nSee 'Spectral Analysis "
         f"Capabilities' in the installation instructions at \n"
         f"https://amescap.readthedocs.io/en/latest/installation.html"
         f"{Nclr}\n"
