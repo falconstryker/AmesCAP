@@ -447,14 +447,23 @@ The conda installation method is recommended as it handles all the complex depen
    cd AmesCAP
    
    # Create conda environment with all dependencies including pyshtools
-   conda env create -f environment.yml -n amescap python=3.13
+   conda env create -f environment.yml -n amescap
    
    # Activate the environment
    conda activate amescap
 
+   # Install the package with spectral analysis support
+   pip install .[spectral]
+
    # It is safe to remove the clone after install
    cd .. # Move out of the AmesCAP repository
    rm -rf AmesCAP # Remove the cloned repository
+
+   # Don't forget to copy the profile file to your home directory
+   cp /opt/anaconda3/envs/amescap/mars_templates/amescap_profile ~/.amescap_profile
+
+   # To deactivate the environment, run:
+   conda deactivate
 
 **Method 1: Using pip**
 
@@ -462,7 +471,15 @@ The pip installation method is less recommended as it requires manual installati
 
 .. code-block:: bash
 
-   # Create your virtual environment according to the instructions above
+   # Create your virtual environment with pip according to the instructions above. Make sure to follow the instructions for your operating system.
+
+   # Activate your virtual environment
 
    # Install CAP with spectral analysis support
    pip install "amescap[spectral] @ git+https://github.com/NASA-Planetary-Science/AmesCAP.git@pyshtools"
+
+   # Don't forget to copy the profile file to your home directory
+   cp amescap/mars_templates/amescap_profile ~/.amescap_profile
+   
+   # To deactivate the environment, run:
+   deactivate
