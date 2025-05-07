@@ -38,17 +38,19 @@ try:
 except ImportError:
     PYSHTOOLS_AVAILABLE = False
     print(
-        "\033[93m__________________\n"
-        "Zonal decomposition relies on the pyshtools library, "
-        "referenced at:\n\n"
-        "Mark A. Wieczorek and Matthias Meschede (2018). "
-        "SHTools - Tools for working with spherical harmonics,"
-        "Geochemistry, Geophysics, Geosystems, 2574-2592, "
-        "doi:10.1029/2018GC007529\n Please consult installation "
-        "instructions at:\n"
-        "\033[96mhttps://pypi.org/project/pyshtools\n"
-        "\033[93mAnd install with:\n"
-        "\033[96mconda install -c conda-forge pyshtools\033[0m"
+        f"{Yellow}__________________\n"
+        f"Zonal decomposition relies on the pyshtools library, "
+        f"referenced at:\n\n"
+        f"Mark A. Wieczorek and Matthias Meschede (2018). "
+        f"SHTools - Tools for working with spherical harmonics,"
+        f"Geochemistry, Geophysics, Geosystems, 2574-2592, "
+        f"doi:10.1029/2018GC007529\n\nPlease consult pyshtools  "
+        f"documentation at:\n"
+        f" {Cyan}https://pypi.org/project/pyshtools\n"
+        f"{Yellow}And installation instructions for CAP with pyshtools:\n"
+        f" {Cyan}https://amescap.readthedocs.io/en/latest/installation."
+        f"html#_spectral_analysis{Yellow}\n"
+        f"__________________{Nclr}\n\n"
     )
 
 def diurn_extract(VAR, N, tod, lon):
