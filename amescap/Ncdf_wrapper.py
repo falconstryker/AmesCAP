@@ -505,14 +505,15 @@ class Fort(object):
 
         # Define dimensions
         for ivar in ["lat", "lon", "pfull", "phalf", "zgrid"]:
-            if ivar =="lon":
-                cart_ax="X"
-            if ivar =="lat":
-                cart_ax="Y"
+            if ivar == "lon":
+                cart_ax = "X"
+            if ivar == "lat":
+                cart_ax = "Y"
             if ivar in ["pfull", "phalf", "zgrid"]:
-                cart_ax="Z"
+                cart_ax = "Z"
             fort_var = self.variables[ivar]
-            Log.add_dim_with_content(dimension_name = ivar, DATAin = fort_var,
+            Log.add_dim_with_content(dimension_name = ivar, 
+                                     DATAin = fort_var,
                                      longname_txt = fort_var.long_name,
                                      units_txt = fort_var.units,
                                      cart_txt = cart_ax)
@@ -527,15 +528,20 @@ class Fort(object):
         time_in = self.variables["time"]
         time_out = daily_to_average(varIN = fort_var,
                                     dt_in = (time_in[1]-time_in[0]),
-                                    nday = day_average, trim = True)
-        Log.log_axis1D(variable_name = "time", DATAin = time_out,
-                       dim_name = "time", longname_txt = time_in.long_name,
-                       units_txt = time_in.units, cart_txt = "T")
+                                    nday = day_average, 
+                                    trim = True)
+        Log.log_axis1D(variable_name = "time", 
+                       DATAin = time_out,
+                       dim_name = "time", 
+                       longname_txt = time_in.long_name,
+                       units_txt = time_in.units, 
+                       cart_txt = "T")
 
         # Log static variables
         for ivar in ["pk", "bk"]:
             fort_var = self.variables[ivar]
-            Log.log_variable(variable_name = ivar, DATAin = fort_var,
+            Log.log_variable(variable_name = ivar, 
+                             DATAin = fort_var,
                              dim_array = fort_var.dimensions,
                              longname_txt = fort_var.long_name,
                              units_txt = fort_var.units)
@@ -546,8 +552,10 @@ class Fort(object):
                 fort_var = self.variables[ivar]
                 var_out = daily_to_average(varIN = fort_var,
                                            dt_in = (time_in[1]-time_in[0]),
-                                           nday = day_average, trim = True)
-                Log.log_variable(variable_name = ivar, DATAin = var_out,
+                                           nday = day_average, 
+                                           trim = True)
+                Log.log_variable(variable_name = ivar, 
+                                 DATAin = var_out,
                                  dim_array = fort_var.dimensions,
                                  longname_txt = fort_var.long_name,
                                  units_txt = fort_var.units)
@@ -570,7 +578,8 @@ class Fort(object):
             if ivar in ["pfull" , "phalf", "zgrid"]:
                 cart_ax="Z"
             fort_var=self.variables[ivar]
-            Log.add_dim_with_content(dimension_name = ivar, DATAin = fort_var,
+            Log.add_dim_with_content(dimension_name = ivar, 
+                                     DATAin = fort_var,
                                      longname_txt = fort_var.long_name,
                                      units_txt = fort_var.units,
                                      cart_txt = cart_ax)
@@ -1114,56 +1123,7 @@ class Fort(object):
         self.variables["zgrid"] = self.Fort_var(
             self.zgrid, "zgrid", "depth at the mid-point of each soil layer",
             "m", ("zgrid"))
-
-    def _ls2sol_1year(self, Ls_deg, offset=True, round10=True):
-        """
-        DEPRICATED
-        Returns a sol number from the solar longitude.
-
-        :param Ls_deg: solar longitude [°]
-        :type Ls_deg: float
         
-        :param offset: if True, make year starts at Ls 0
-        :type offset: bool
-        
-        :param round10: if True, round to the nearest 10 sols
-        :type round10: bool
-
-        :return: ``Ds`` sol number
-
-        .. note::
-            For the moment this is consistent with Ls 0 -> 359.99,
-            not for monotically increasing Ls.
-            
-        """
-        # Ls at perihelion
-        Lsp = 250.99
-        # Time (in sols) at perihelion
-        tperi = 485.35
-        # Number of sols in 1 MY
-        Ns = 668.6
-        # From Legacy GCM: modules.f90
-        e = 0.093379
-        nu = (Ls_deg-Lsp) * np.pi/180
-        E = 2 * np.arctan(np.tan(nu/2) * np.sqrt((1-e)/(1+e)))
-        M = E - e*np.sin(E)
-        Ds = M/(2*np.pi)*Ns + tperi
-
-        # Offset correction
-        if offset:
-            # ``Ds`` is a float
-            if len(np.atleast_1d(Ds)) == 1:
-                Ds -= Ns
-                if Ds < 0:
-                    Ds += Ns
-            # ``Ds`` is an array
-            else:
-                Ds -= Ns
-                Ds[Ds < 0] = Ds[Ds < 0] + Ns
-        if round:
-            # -1 means round to the nearest 10
-            Ds = np.round(Ds, -1)
-        return Ds
 
     def _linInterpLs(self, Ls, stride=16):
         """

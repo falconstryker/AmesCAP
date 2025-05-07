@@ -243,7 +243,6 @@ Using **conda** with **Cygwin**:
    # The same command works in both PowerShell and Cygwin
    pip install git+https://github.com/NASA-Planetary-Science/AmesCAP.git
 
-
 .. note::
 
    You can install a specific branch of the AmesCAP repository by appending ``@branch_name`` to the URL. For example, to install the ``devel`` branch, use:
@@ -253,7 +252,6 @@ Using **conda** with **Cygwin**:
       pip install git+https://github.com/NASA-Planetary-Science/AmesCAP.git@devel
    
    This is useful if you want to test new features or bug fixes that are not yet in the main branch.
-
 
 4. Copy the profile file to your home directory
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -318,6 +316,7 @@ Troubleshooting Tips
 * **Virtual Environment Not Activating**: Ensure you're using the correct activation script for your shell.
 * **Package Installation Failures**: Check your internet connection and ensure Git is properly installed.
 * **Profile File Not Found**: Double-check the installation paths. The actual path may vary depending on your specific installation.
+* **HOME**: If you encounter errors related to HOME not defined, set the variable: ``$env:HOME = $HOME`` (PowerShell) or ``export HOME="$USERPROFILE"`` (Cygwin)
 
 .. _nas_install:
 
@@ -386,7 +385,7 @@ Install CAP from the `NASA Planetary Science GitHub <https://github.com/NASA-Pla
       pip install git+https://github.com/NASA-Planetary-Science/AmesCAP.git@devel
    
    This is useful if you want to test new features or bug fixes that are not yet in the main branch.
-
+   
 5. Copy the profile file to your home directory
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

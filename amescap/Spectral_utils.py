@@ -16,7 +16,7 @@ Third-party Requirements:
 # Load generic Python modules
 import numpy as np
 
-from amescap.Script_utils import Yellow, Nclr, progress
+from amescap.Script_utils import Yellow, Cyan, Nclr, progress
 
 try:
     from scipy.signal import butter, filtfilt, detrend
