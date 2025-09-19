@@ -245,12 +245,15 @@ def fms_press_calc(psfc, ak, bk, lev_type='full'):
     # Heuristic: choose algorithm based on problem size
     if total_elements < 1e6:
         # Small problem: use ultra-optimized version
+        print("Using ultra-optimized pressure interpolation")
         return fms_press_calc_ultra_optimized(psfc, ak, bk, lev_type)
     elif total_elements < 1e8:
         # Medium problem: use fully vectorized version
+        print("Using fully vectorized pressure interpolation")
         return fms_press_calc_fully_vectorized(psfc, ak, bk, lev_type)
     else:
         # Large problem: use minimal memory version with chunking
+        print("Using minimal memory pressure interpolation")
         return fms_press_calc_minimal_memory(psfc, ak, bk, lev_type)
     
 # def fms_press_calc(psfc, ak, bk, lev_type='full'):
