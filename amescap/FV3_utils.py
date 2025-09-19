@@ -25,7 +25,7 @@ from scipy.spatial import cKDTree
 # p_full = full-level = layer midpoints
 
 
-def fms_press_calc_memory_optimized(psfc, ak, bk, lev_type='full'):
+def fms_press_calc(psfc, ak, bk, lev_type='full'):
     """
     Memory-optimized version that works directly on output arrays to minimize
     memory allocation. Best for very large arrays.
