@@ -5,7 +5,6 @@ altitude coordinates. Options include interpolation to standard
 pressure (``pstd``), standard altitude (``zstd``), altitude above
 ground level (``zagl``), or a custom vertical grid.
 
-Courtney Batterson 2025:
 VECTORIZED VERSION: This version includes significant performance optimizations:
 - Vectorized array operations throughout
 - Batch processing of variables
@@ -78,15 +77,6 @@ def debug_wrapper(func):
     """
     A decorator that wraps a function with error handling
     based on the --debug flag.
-    
-    If the --debug flag is set, it prints the full traceback
-    of any exception that occurs. Otherwise, it prints a
-    simplified error message.
-
-    :param func: The function to wrap.
-    :type  func: function
-    :return: The wrapped function.
-    :rtype:  function
     """
 
     @functools.wraps(func)
@@ -105,6 +95,7 @@ def debug_wrapper(func):
                       f"--debug for more information.{Nclr}")
             return 1  # Error exit code
     return wrapper
+
 
 # ======================================================================
 #                       VECTORIZED HELPER FUNCTIONS
@@ -203,7 +194,7 @@ def vectorized_pressure_field_calc(ps, ak, bk, interp_type, temp=None,
 
 
 def batch_variable_processor(var_list, fNcdf, fnew, L_3D_P, lev_in, 
-                           config, permut, index, tod_name, do_diurn, ifile):
+                           config, permut, index, tod_name, do_diurn, ifile, interp_type):
     """
     Vectorized batch processing of variables for interpolation.
     Groups variables by type and processes them efficiently.
@@ -242,7 +233,7 @@ def batch_variable_processor(var_list, fNcdf, fnew, L_3D_P, lev_in,
         # Process each shape group
         for shape, vars_in_group in shape_groups.items():
             process_variable_group(vars_in_group, fNcdf, fnew, L_3D_P, lev_in,
-                                 config, permut, index, tod_name, do_diurn, ifile)
+                                 config, permut, index, tod_name, do_diurn, ifile, interp_type)
     
     # Batch process copy variables
     if copy_vars:
@@ -251,7 +242,7 @@ def batch_variable_processor(var_list, fNcdf, fnew, L_3D_P, lev_in,
 
 
 def process_variable_group(var_group, fNcdf, fnew, L_3D_P, lev_in, config, 
-                          permut, index, tod_name, do_diurn, ifile):
+                          permut, index, tod_name, do_diurn, ifile, interp_type):
     """
     Process a group of variables with similar shapes together for efficiency.
     """
@@ -280,10 +271,13 @@ def process_variable_group(var_group, fNcdf, fnew, L_3D_P, lev_in, config,
         else:
             base_dims = ("lat", "lon")
         
+        # Use the actual interpolation type (pstd, zstd, zagl) not the technique
+        interp_dim = interp_type
+        
         if not do_diurn:
-            dims = ("time", config["interp_technic"]) + base_dims
+            dims = ("time", interp_dim) + base_dims
         else:
-            dims = ("time", tod_name, config["interp_technic"]) + base_dims
+            dims = ("time", tod_name, interp_dim) + base_dims
         
         # Log variable to output file
         fnew.log_variable(ivar, varOUT, dims, long_name_txt, units_txt)
@@ -304,47 +298,13 @@ def batch_copy_variables(var_list, fNcdf, fnew):
                 fnew.copy_Ncvar(fNcdf.variables[ivar])
 
 
-def vectorized_file_processing(file_list, config, lev_in, args):
+def vectorized_file_processing_legacy(file_list, config, lev_in, args):
     """
-    Vectorized processing of multiple files with optimized I/O patterns.
+    Legacy vectorized processing function - replaced by inline processing in main().
+    Kept for reference but not used in current implementation.
     """
-    
-    results = []
-    
-    # Pre-load fixed file data if needed for zstd
-    zsurf = None
-    if config["interp_technic"] == "lin" and "zstd" in str(config):
-        name_fixed = find_fixedfile(file_list[0])
-        try:
-            with Dataset(name_fixed, 'r') as f_fixed:
-                model = read_variable_dict_amescap_profile(f_fixed)
-                zsurf = f_fixed.variables["zsurf"][:]
-        except FileNotFoundError:
-            print(f"{Red}***Error*** Topography (zsurf) required for zstd{Nclr}")
-            return None
-    
-    # Process files with optimized memory patterns
-    for ifile in file_list:
-        start_time = time.time()
-        
-        # Check file availability
-        check_file_tape(ifile)
-        
-        # Generate output filename
-        if args.extension:
-            newname = f"{os.getcwd()}/{ifile[:-3]}_{args.interp_type}_{args.extension}.nc"
-        else:
-            newname = f"{os.getcwd()}/{ifile[:-3]}_{args.interp_type}.nc"
-        
-        # Process single file with vectorized operations
-        result = process_single_file_vectorized(ifile, newname, config, lev_in, 
-                                               zsurf, args)
-        
-        if result:
-            results.append(result)
-            print(f"Completed {ifile} in {(time.time() - start_time):.3f} sec")
-    
-    return results
+    # This function is no longer used - processing moved to main()
+    pass
 
 
 def process_single_file_vectorized(ifile, newname, config, lev_in, zsurf, args):
@@ -396,7 +356,7 @@ def process_single_file_vectorized(ifile, newname, config, lev_in, zsurf, args):
             
             # Batch process all variables
             batch_variable_processor(var_list, fNcdf, fnew, L_3D_P, lev_in,
-                                   config, permut, index, tod_name, do_diurn, ifile)
+                                   config, permut, index, tod_name, do_diurn, ifile, args.interp_type)
             
         # Finalize output file
         fnew.close()
@@ -446,6 +406,7 @@ def setup_output_file_structure(fNcdf, fnew, config, lev_in, interp_type,
     if do_diurn and tod_name in fNcdf.variables:
         fnew.copy_Ncaxis_with_content(fNcdf.variables[tod_name])
 
+
 # ======================================================================
 #                           ARGUMENT PARSER
 # ======================================================================
@@ -454,7 +415,7 @@ parser = argparse.ArgumentParser(
     prog=('MarsInterp'),
     description=(
         f"{Yellow}Performs a pressure interpolation on the vertical "
-        f"coordinate of the netCDF file.{Nclr}\n\n"
+        f"coordinate of the netCDF file (VECTORIZED VERSION).{Nclr}\n\n"
     ),
     formatter_class=argparse.RawTextHelpFormatter
 )
@@ -474,8 +435,6 @@ parser.add_argument('-t', '--interp_type', type=str, default='pstd',
         f"{Nclr}\n\n"
     )
 )
-
-# Secondary arguments: Used with some of the arguments above
 
 parser.add_argument('-v', '--vertical_grid', type=str, default=None,
     help=(
@@ -513,8 +472,6 @@ parser.add_argument('-print', '--print_grid', action='store_true',
     )
 )
 
-# Secondary arguments: Used with some of the arguments above
-
 parser.add_argument('-ext', '--extension', type=str, default=None,
     help=(
         f"Must be paired with an argument listed above.\nInstead of "
@@ -537,7 +494,7 @@ parser.add_argument('--debug', action='store_true',
         f"> MarsInterp 01336.atmos_average.nc -t pstd --debug"
         f"{Nclr}\n\n"
     )
- )
+)
 
 parser.add_argument('-j', '--jobs', type=int, default=1,
     help=(
@@ -577,69 +534,26 @@ M_co2 = 0.044   # kg/mol
 filepath = os.getcwd()
 
 # ======================================================================
-#                               MAIN PROGRAM
+#                       VECTORIZED MAIN PROGRAM
 # ======================================================================
 
 
 @debug_wrapper
 def main():
     """
-    Main function for performing vertical interpolation on Mars
+    VECTORIZED Main function for performing vertical interpolation on Mars
     atmospheric model NetCDF files.
 
     This vectorized version includes:
-        - Batch processing of variables with similar characteristics
-        - Optimized memory usage patterns
-        - Vectorized array operations throughout
-        - Pre-computation of interpolation indices
-        - Efficient handling of multiple files
-        - Optional parallel processing capability
-        
-    This function processes one or more input NetCDF files,
-    interpolating variables from their native vertical coordinate
-    (e.g., model pressure levels) to a user-specified standard vertical
-    grid (pressure, altitude, or altitude above ground level).
-    The interpolation type and grid can be customized via command-line
-    arguments.
-
-    Workflow:
-        1. Parses command-line arguments for input files, interpolation
-        type, custom vertical grid, and other options.
-        2. Loads standard vertical grid definitions (pressure, altitude,
-        or altitude above ground level) or uses a custom grid.
-        3. Optionally prints the vertical grid and exits if requested.
-        4. For each input file:
-            - Checks file existence.
-            - Loads necessary variables (e.g., pk, bk, ps, temperature).
-            - Computes the 3D vertical coordinate field for
-              interpolation.
-            - Creates a new NetCDF output file with updated vertical
-              dimension.
-            - Interpolates selected variables to the new vertical grid.
-            - Copies or interpolates other variables as appropriate.
-        5. Handles both regular and diurnal-cycle files, as well as
-        FV3-tiled and lat/lon grids.
-
-    Command-line arguments (via `args`):
-        - input_file: List of input NetCDF files to process.
-        - interp_type: Type of vertical interpolation ('pstd', 'zstd',
-          or 'zagl').
-        - vertical_grid: Custom vertical grid definition (optional).
-        - print_grid: If True, prints the vertical grid and exits.
-        - extension: Optional string to append to output filenames.
-        - include: List of variable names to include in interpolation.
-        - debug: Enable debug output.
-
-    Notes:
-        - Requires several helper functions and classes (e.g.,
-          section_content_amescap_profile, find_fixedfile, Dataset,
-          Ncdf, vinterp).
-        - Handles both FV3-tiled and regular lat/lon NetCDF files.
-        - Exits with an error message if required files or variables are
-          missing.
+    - Batch processing of variables with similar characteristics
+    - Optimized memory usage patterns
+    - Vectorized array operations throughout
+    - Pre-computation of interpolation indices
+    - Efficient handling of multiple files
+    - Optional parallel processing capability
     """
 
-    start_time   = time.time()
+    start_time = time.time()
     
     # Extract file list and parameters
     file_list = [f.name for f in args.input_file]
@@ -676,22 +590,55 @@ def main():
         # Parallel processing for multiple files
         print(f"{Cyan}Using {args.jobs} parallel jobs...{Nclr}")
         with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-            # Note: This is a simplified parallel approach
-            # For production, consider using multiprocessing for CPU-bound tasks
-            results = list(executor.map(
-                lambda f: process_single_file_vectorized(
-                    f, 
-                    f"{filepath}/{f[:-3]}_{args.interp_type}" + 
-                    (f"_{args.extension}" if args.extension else "") + ".nc",
-                    config, lev_in, 
+            # Create tasks for parallel execution
+            futures = []
+            for ifile in file_list:
+                if args.extension:
+                    newname = f"{filepath}/{ifile[:-3]}_{args.interp_type}_{args.extension}.nc"
+                else:
+                    newname = f"{filepath}/{ifile[:-3]}_{args.interp_type}.nc"
+                
+                future = executor.submit(
+                    process_single_file_vectorized,
+                    ifile, newname, config, lev_in,
                     zsurf if args.interp_type == "zstd" else None,
                     args
-                ), 
-                file_list
-            ))
+                )
+                futures.append(future)
+            
+            # Collect results
+            results = []
+            for future in futures:
+                try:
+                    result = future.result(timeout=300)  # 5 minute timeout per file
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    print(f"{Red}Parallel processing error: {str(e)}{Nclr}")
+                    results.append({"success": False, "error": str(e)})
     else:
         # Sequential processing with vectorized operations
-        results = vectorized_file_processing(file_list, config, lev_in, args)
+        results = []
+        for ifile in file_list:
+            start_time = time.time()
+            
+            # Check file availability
+            check_file_tape(ifile)
+            
+            # Generate output filename
+            if args.extension:
+                newname = f"{filepath}/{ifile[:-3]}_{args.interp_type}_{args.extension}.nc"
+            else:
+                newname = f"{filepath}/{ifile[:-3]}_{args.interp_type}.nc"
+            
+            # Process single file with vectorized operations
+            result = process_single_file_vectorized(ifile, newname, config, lev_in, 
+                                                   zsurf if args.interp_type == "zstd" else None, 
+                                                   args)
+            
+            if result:
+                results.append(result)
+                print(f"Completed {ifile} in {(time.time() - start_time):.3f} sec")
     
     # Summary
     total_time = time.time() - start_time
@@ -703,7 +650,8 @@ def main():
     print(f"Average time per file: {total_time/len(file_list):.3f} seconds")
     
     return 0 if successful == len(file_list) else 1
-                
+
+
 # ======================================================================
 #                           END OF PROGRAM
 # ======================================================================
