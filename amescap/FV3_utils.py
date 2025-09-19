@@ -1222,6 +1222,9 @@ def areo_avg(VAR, areo, Ls_target, Ls_angle, symmetric=True):
 def mass_stream(v_avg, lat, level, type="pstd", psfc=700, H=8000.,
                 factor=1.e-8):
     """
+    Highly optimized version using advanced NumPy vectorization techniques.
+    This version eliminates all explicit loops and uses only array operations.
+    
     Compute the mass stream function::
 
                                 P
@@ -1287,60 +1290,59 @@ def mass_stream(v_avg, lat, level, type="pstd", psfc=700, H=8000.,
     nlev = len(level)
     shape_out = v_avg.shape
 
-    # If size is ``[pstd, lat]``, convert to ``[pstd, lat, 1]`` for
-    # generality
+    # Reshape for generality and flatten
     if len(shape_out) == 2:
         v_avg = v_avg.reshape(nlev, len(lat), 1)
-
-    # Flatten array
     v_avg = v_avg.reshape((nlev, len(lat), np.prod(v_avg.shape[2:])))
-    MSF = np.zeros_like(v_avg)
 
-    # Sum variable, same dimensions as ``v_avg`` but for first dimension
-    I = np.zeros(v_avg.shape[2:])
-
-    # Replace NaN with 0 for downward integration
-    isNan = False
-    if np.isnan(v_avg).any():
-        isNan = True
-        mask = np.isnan(v_avg)
-        v_avg[mask] = 0.
-
-    isMasked = False
+    original_mask = False
     if np.ma.is_masked(v_avg):
-        # Missing data may be masked instead of set to NaN
-        isMasked = True
-        mask0 = np.ma.getmaskarray(v_avg)
-        # Make a standalone copy of the mask array
-        mask = mask0.copy()
-        # Set masked elements to ``0.`` Note that this effectively
-        # unmasks the array as ``0.`` is a valid entry.
-        v_avg[mask0] = 0.
+        original_mask = np.ma.getmaskarray(v_avg).copy()
+        v_avg = np.ma.filled(v_avg, 0.)
+    elif np.isnan(v_avg).any():
+        original_mask = np.isnan(v_avg)
+        v_avg = np.where(original_mask, 0., v_avg)
 
+    # Compute Z coordinates
     if type == "pstd":
         Z = H * np.log(psfc/level)
     else:
-        # Copy ``zagl`` or ``zstd`` instead of using a pseudo height
         Z = level.copy()
 
-    for k0 in range(nlev-2, 0, -1):
-        I[:] = 0.
-        for k in range(nlev-2, k0, -1):
-            zn = Z[k]
-            znp1 = Z[k+1]
-            fn = v_avg[k, :, ...] * np.exp(-zn/H)
-            fnp1 = v_avg[k+1, :, ...] * np.exp(-znp1/H)
-            I = I + 0.5 * (znp1-zn) * (fnp1+fn)
-        MSF[k0, :, ...] = (2 * np.pi * a * psfc
-                           / (g*H)
-                           * np.cos(np.pi/180*lat).reshape([len(lat), 1])
-                           * I * factor)
+    # Pre-compute all exponential terms and differences
+    exp_Z = np.exp(-Z / H)
+    dZ = Z[1:] - Z[:-1]
+    
+    # Weighted velocities for all levels
+    v_weighted = v_avg * exp_Z[:, np.newaxis, np.newaxis]
+    
+    # Trapezoidal rule: average consecutive points and multiply by spacing
+    v_trap = 0.5 * (v_weighted[1:] + v_weighted[:-1])
+    v_trap *= dZ[:, np.newaxis, np.newaxis]
+    
+    # Vectorized cumulative integration using matrix operations
+    # Create integration matrix (upper triangular)
+    n_int = nlev - 2  # Number of integration levels (from 1 to nlev-2)
+    integration_matrix = np.triu(np.ones((n_int, nlev-1)), k=1)
+    
+    # Compute all integrals at once using matrix multiplication
+    # integrals[k0-1] = sum(v_trap[k] for k from k0 to nlev-2)
+    integrals = np.tensordot(integration_matrix, v_trap, axes=([1], [0]))
+    
+    # Pre-compute constants
+    cos_lat = np.cos(np.pi/180 * lat)
+    const_factor = 2 * np.pi * a * psfc * factor / (g * H)
+    
+    # Initialize MSF and fill computed values
+    MSF = np.zeros_like(v_avg)
+    MSF[1:nlev-1] = const_factor * cos_lat[np.newaxis, :, np.newaxis] * integrals
 
-    # Put NaNs back to where they initially were
-    if isNan:
-        MSF[mask] = np.nan
-    if isMasked:
-        MSF = np.ma.array(MSF, mask = mask)
+    # Restore original NaN/mask pattern
+    if original_mask is not None:
+        if np.ma.is_masked(original_mask):
+            MSF = np.ma.array(MSF, mask=original_mask)
+        else:
+            MSF[original_mask] = np.nan
     
     if reverting:
         print("Reversing pstd dimension of MSF array for compatibility...")
