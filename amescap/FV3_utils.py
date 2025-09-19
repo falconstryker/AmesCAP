@@ -25,8 +25,11 @@ from scipy.spatial import cKDTree
 # p_full = full-level = layer midpoints
 
 
-def fms_press_calc(psfc, ak, bk, lev_type='full'):
+def fms_press_calc_memory_optimized(psfc, ak, bk, lev_type='full'):
     """
+    Memory-optimized version that works directly on output arrays to minimize
+    memory allocation. Best for very large arrays.
+    
     Returns the 3D pressure field from the surface pressure and the
     ak/bk coefficients.
 
@@ -58,58 +61,61 @@ def fms_press_calc(psfc, ak, bk, lev_type='full'):
         Some literature uses pk (pressure) instead of ak with
         ``p3d = ps * bk + P_ref * ak`` instead of ``p3d = ps * bk + ak``
     """
-
+    
     Nk = len(ak)
-    # If ``psfc`` is a float (e.g., ``psfc = 700.``), make it a
-    # 1-element array (e.g., ``psfc = [700]``)
-    if len(np.atleast_1d(psfc)) == 1:
-        psfc = np.array([np.squeeze(psfc)])
-
-    # Flatten ``psfc`` array to generalize it to N dimensions
-    psfc_flat = psfc.flatten()
-
-    # Expand the dimensions. Vectorized calculations:
-    # (Np) -> (Np, Nk)
-    psfc_v = np.repeat(psfc_flat[:, np.newaxis], Nk, axis = 1)
-    # (Nk) -> (Np, Nk)
-    ak_v = np.repeat(ak[np.newaxis, :], len(psfc_flat), axis = 0)
-    # (Nk) -> (1,  Nk)
-    bk_v = np.repeat(bk[np.newaxis, :], 1, axis = 0)
-    # (Nk) -> (1,  Nk)
-
-    # Pressure at layer interfaces. The size of Z axis is ``Nk``
-    PRESS_h = psfc_v*bk_v + ak_v
-
-    # Pressure at layer midpoints. The size of Z axis is ``Nk-1``
-    PRESS_f = np.zeros((len(psfc_flat), Nk-1))
-
-    if ak[0] == 0 and bk[0] == 0:
-        # Top layer (1st element is ``i = 0`` in Python)
-        PRESS_f[:, 0] = 0.5 * (PRESS_h[:, 0]+PRESS_h[:, 1])
-    else:
-        PRESS_f[:, 0] = (
-            (PRESS_h[:, 1] - PRESS_h[:, 0])
-            / np.log(PRESS_h[:, 1] / PRESS_h[:, 0])
-            )
-
-    # The rest of the column (``i = 1 ... Nk``). [2:] goes from the 3rd
-    # element to ``Nk`` and [1:-1] goes from the 2nd element to ``Nk-1``
-    PRESS_f[:, 1:] = ((PRESS_h[:, 2:] - PRESS_h[:, 1:-1])
-                      / np.log(PRESS_h[:, 2:] / PRESS_h[:, 1:-1]))
-
-    # First, transpose ``PRESS(:, Nk)`` to ``PRESS(Nk, :)``. Then
-    # reshape ``PRESS(Nk, :)`` to the original pressure shape
-    # ``PRESS(Nk, :, :, :)`` (resp. ``Nk-1``)
-    #TODO
+    psfc = np.atleast_1d(psfc)
+    original_shape = psfc.shape
+    
+    # Pre-allocate final output array
     if lev_type == "full":
-        new_dim_f = np.append(Nk-1, psfc.shape)
-        return PRESS_f.T.reshape(new_dim_f)
+        output_shape = (Nk-1,) + original_shape
+        result = np.empty(output_shape, dtype=psfc.dtype)
     elif lev_type == "half":
-        new_dim_h = np.append(Nk, psfc.shape)
-        return PRESS_h.T.reshape(new_dim_h)
+        output_shape = (Nk,) + original_shape
+        result = np.empty(output_shape, dtype=psfc.dtype)
     else:
-        raise Exception("Pressure level type not recognized by "
-                        "``press_lev()``: use 'full' or 'half' ")
+        raise Exception("Pressure level type not recognized")
+    
+    # Work with flattened views
+    psfc_flat = psfc.ravel()
+    result_work = result.reshape(result.shape[0], -1)
+    
+    # Direct computation into output array
+    if lev_type == "half":
+        # Compute directly into result array using broadcasting
+        for k in range(Nk):
+            result_work[k, :] = psfc_flat * bk[k] + ak[k]
+    
+    elif lev_type == "full":
+        # Compute half-levels on-the-fly for full-level calculation
+        # This avoids storing the full PRESS_h array
+        
+        for k in range(Nk-1):
+            # Compute adjacent half-levels
+            p_upper = psfc_flat * bk[k] + ak[k]
+            p_lower = psfc_flat * bk[k+1] + ak[k+1]
+            
+            # Log-mean calculation
+            dp = p_lower - p_upper
+            
+            with np.errstate(divide='ignore', invalid='ignore'):
+                log_ratio = np.log(p_lower / p_upper)
+                
+                # Robust calculation
+                valid_mask = np.isfinite(log_ratio) & (np.abs(log_ratio) > 1e-10)
+                
+                # Default to arithmetic mean
+                result_work[k, :] = 0.5 * (p_upper + p_lower)
+                
+                # Override with log-mean where valid
+                result_work[k, valid_mask] = (dp[valid_mask] / 
+                                            log_ratio[valid_mask])
+            
+            # Handle special top layer case
+            if k == 0 and ak[0] == 0 and bk[0] == 0:
+                result_work[0, :] = 0.5 * (p_upper + p_lower)
+    
+    return result
 
 
 def fms_Z_calc(psfc, ak, bk, T, topo=0., lev_type="full"):
