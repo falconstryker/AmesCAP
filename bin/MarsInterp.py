@@ -351,7 +351,7 @@ def process_single_file_vectorized(ifile, newname, config, lev_in, zsurf, args):
             var_list = filter_vars(fNcdf, args.include)
             
             # Pre-compute interpolation indices (vectorized)
-            print(f"{Cyan}Computing interpolation indices ...{Nclr}")
+            print(f"{Cyan}Computing interpolation indices...{Nclr}")
             index = find_n(L_3D_P, lev_in, reverse_input=config["need_to_reverse"])
             
             # Batch process all variables
