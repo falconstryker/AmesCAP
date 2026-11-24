@@ -95,9 +95,110 @@ class TestLongitudeRange(unittest.TestCase):
         self.assertEqual(len(loni), 44)
         self.assertIn('159.4<->-39.4', txt)
 
+    def test_range_past_180_keeps_0_360_label(self):
+        # Regression: 100,200 was labeled 99.0<->-161.0
+        loni, txt = MarsPlot.get_lon_index(np.array([100., 200.]), self.lons)
+        self.assertEqual(len(loni), 28)
+        self.assertIn('99.4<->200.6', txt)
+
+    def test_single_lon_keeps_requested_convention(self):
+        _, txt = MarsPlot.get_lon_index(np.array(200.), self.lons)
+        self.assertIn('lon=200.6', txt)
+        _, txt = MarsPlot.get_lon_index(np.array(-160.), self.lons)
+        self.assertIn('lon=-159.4', txt)
+
+    def test_full_circle_counts_each_longitude_once(self):
+        # Regression: both ends snapped to one point, and the wrap
+        # counted that point twice (Nlon + 1 indices)
+        for req in ([-180., 180.], [0., 360.]):
+            loni, txt = MarsPlot.get_lon_index(np.array(req), self.lons)
+            np.testing.assert_array_equal(np.sort(loni),
+                                          np.arange(len(self.lons)))
+            self.assertIn('zonal avg', txt)
+
+    def test_single_point_range(self):
+        loni, _ = MarsPlot.get_lon_index(np.array([10., 10.]), self.lons)
+        self.assertEqual(np.atleast_1d(loni).size, 1)
+
     def test_range_within_eastern_hemisphere(self):
         loni, _ = MarsPlot.get_lon_index(np.array([10., 50.]), self.lons)
         self.assertEqual(len(loni), 12)
+
+
+class TestDiurnMean(unittest.TestCase):
+    # [time=1, tod=2, lat=1, lon=2]; one below-ground NaN at tod 0, lon 1.
+    # Longitude first: tod 0 -> 1, tod 1 -> (3 + 5)/2 = 4, mean = 2.5.
+    # Time of day first: lon 0 -> 2, lon 1 -> 5, mean = 3.5.
+    var = np.array([[[[1.0, np.nan]], [[3.0, 5.0]]]])
+
+    def test_zonal_mean_plots_average_longitude_first(self):
+        for plot_type in MarsPlot.ZONAL_THEN_TIME_PLOTS:
+            out = MarsPlot.diurn_mean(self.var, plot_type)
+            self.assertEqual(out.shape, (1, 1, 1))
+            self.assertAlmostEqual(float(np.nanmean(out)), 2.5)
+
+    def test_other_plots_keep_longitude(self):
+        out = MarsPlot.diurn_mean(self.var, "2D_lon_lat")
+        self.assertEqual(out.shape, (1, 1, 2))
+        np.testing.assert_array_equal(out[0, 0], [2.0, 5.0])
+
+    def test_mean_func_keepdims(self):
+        out = MarsPlot.mean_func(self.var, axis = -1, keepdims = True)
+        self.assertEqual(out.shape, (1, 2, 1, 1))
+
+    def test_area_mean_plots_average_space_first(self):
+        # [time=1, tod=2, lat=2, lon=2]; a 1-lat slice behaves as above
+        var = np.concatenate([self.var, self.var], axis = 2)
+        lat = np.array([-1.0, 1.0])
+        for plot_type in MarsPlot.AREA_THEN_TIME_PLOTS:
+            out = MarsPlot.diurn_mean(var, plot_type, lat)
+            self.assertEqual(out.shape, (1, 1, 1))
+            self.assertAlmostEqual(float(out.squeeze()), 2.5)
+
+    def test_meridional_mean_plots_average_latitude_first(self):
+        # [time=1, tod=2, lat=2, lon=1]; NaN at tod 0, lat 1.
+        # Latitude first: tod 0 -> 1, tod 1 -> 4, mean = 2.5
+        var = np.array([[[[1.0], [np.nan]], [[3.0], [5.0]]]])
+        lat = np.array([-1.0, 1.0])
+        for plot_type in MarsPlot.MERIDIONAL_THEN_TIME_PLOTS:
+            out = MarsPlot.diurn_mean(var, plot_type, lat)
+            self.assertEqual(out.shape, (1, 1, 1))
+            self.assertAlmostEqual(float(out.squeeze()), 2.5)
+
+
+class TestAreaMean(unittest.TestCase):
+    lat = np.array([0.0, 60.0])
+
+    def test_lat_mean_is_area_weighted(self):
+        var = np.array([[0.0], [1.0]])             # [lat, lon]
+        w = MarsPlot.area_weights_deg((2, 1), self.lat)[:, 0]
+        out = MarsPlot.lat_mean(var, self.lat, axis = 0)
+        self.assertAlmostEqual(float(out[0]), w[1] / w.sum())
+        self.assertLess(float(out[0]), 0.5)        # pole-ward cell is smaller
+
+    def test_lat_mean_skips_nans(self):
+        var = np.array([[2.0], [np.nan]])          # [lat, lon]
+        out = MarsPlot.lat_mean(var, self.lat, axis = 0)
+        self.assertEqual(float(out[0]), 2.0)
+
+    def test_lat_mean_skips_masked_values(self):
+        var = np.ma.masked_array([2.0, 7.0], mask = [False, True])
+        out = MarsPlot.lat_mean(var, self.lat, axis = 0)
+        self.assertEqual(float(out), 2.0)
+
+    def test_lat_mean_all_nan_is_nan(self):
+        out = MarsPlot.lat_mean(np.array([np.nan, np.nan]), self.lat, axis = 0)
+        self.assertTrue(np.isnan(out))
+
+    def test_area_mean_averages_longitude_first(self):
+        # [lat=2, lon=2]; one below-ground NaN at lat 1, lon 1.
+        # Longitude first: lat 0 -> 1, lat 1 -> 3; then weighted by area.
+        # Latitude first would give lon 0 -> weighted(1, 3), lon 1 -> 1.
+        var = np.array([[1.0, 1.0], [3.0, np.nan]])
+        w = MarsPlot.area_weights_deg((2, 1), self.lat)[:, 0]
+        expected = (1.0 * w[0] + 3.0 * w[1]) / w.sum()
+        out = MarsPlot.area_mean(var, self.lat)
+        self.assertAlmostEqual(float(out), expected)
 
 
 if __name__ == '__main__':

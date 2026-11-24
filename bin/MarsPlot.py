@@ -668,7 +668,7 @@ try:
 except NameError:
     pass
 
-def mean_func(arr, axis):
+def mean_func(arr, axis, keepdims=False):
     """
     Calculate the mean of an array along a specified axis.
 
@@ -680,6 +680,8 @@ def mean_func(arr, axis):
     :type  arr: array
     :param axis: the axis over which to average the array
     :type  axis: int
+    :param keepdims: keep the averaged axis with length 1
+    :type  keepdims: bool
     :return: the mean over the time axis
     :rtype:  array
     :raises ValueError: If the array is empty or the axis is out of bounds.
@@ -692,9 +694,123 @@ def mean_func(arr, axis):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category = RuntimeWarning)
         if include_NaNs:
-            return np.mean(arr, axis = axis)
+            return np.mean(arr, axis = axis, keepdims = keepdims)
         else:
-            return np.nanmean(arr, axis = axis)
+            return np.nanmean(arr, axis = axis, keepdims = keepdims)
+
+
+def lat_mean(var, lat_c, axis, keepdims=False):
+    """
+    Area-weighted mean over latitude.
+
+    Like ``mean_func``, this skips NaNs (e.g., below-ground values)
+    unless ``show_NaN_in_slice`` is set in ``amescap_profile``. When it
+    skips NaNs, the weights are normalized by the area of the valid
+    cells only. Masked values are treated as NaNs.
+
+    :param var: the array to be averaged
+    :type  var: array
+    :param lat_c: latitude cell centers [°] for the latitude axis
+    :type  lat_c: array
+    :param axis: the latitude axis of ``var``
+    :type  axis: int
+    :param keepdims: keep the averaged axis with length 1
+    :type  keepdims: bool
+    :return: the area-weighted mean over latitude
+    :rtype:  array
+    """
+
+    var = np.ma.filled(np.ma.asarray(var, dtype = float), np.nan)
+    if var.shape[axis] == 1:
+        # Already reduced (or a single latitude): nothing to weight
+        return var if keepdims else np.take(var, 0, axis = axis)
+    # Weights along latitude, shaped to broadcast against var
+    shape = [1] * var.ndim
+    shape[axis] = var.shape[axis]
+    w = area_weights_deg((var.shape[axis], 1), lat_c)[:, 0].reshape(shape)
+    w = np.broadcast_to(w, var.shape)
+    if include_NaNs:
+        return np.average(var, weights = w, axis = axis) if not keepdims \
+            else np.expand_dims(np.average(var, weights = w, axis = axis),
+                                axis)
+    valid = ~np.isnan(var)
+    num = np.sum(np.where(valid, var * w, 0.), axis = axis,
+                 keepdims = keepdims)
+    den = np.sum(np.where(valid, w, 0.), axis = axis, keepdims = keepdims)
+    with np.errstate(invalid = "ignore", divide = "ignore"):
+        return np.where(den > 0, num / np.where(den > 0, den, 1.), np.nan)
+
+
+# Spatial means are taken before time means, so that below-ground NaNs
+# are skipped in the same order as on the Web Interface: longitude,
+# then latitude (area-weighted), then time of day and time.
+# Zonal means average over longitude:
+ZONAL_THEN_TIME_PLOTS = ("2D_lat_lev", "2D_time_lat", "1D_lat")
+# Meridional means average over latitude (area-weighted):
+MERIDIONAL_THEN_TIME_PLOTS = ("2D_lon_lev", "2D_lon_time", "1D_lon")
+# Area means average over longitude, then latitude (area-weighted):
+AREA_THEN_TIME_PLOTS = ("2D_time_lev", "1D_time", "1D_lev")
+
+
+def area_mean(var, lat_c, lat_axis = -2, keepdims = False):
+    """
+    Area-weighted mean over latitude and longitude.
+
+    Averages over longitude (the axis after ``lat_axis``) first and
+    then over latitude (area-weighted), skipping NaNs as ``mean_func``
+    and ``lat_mean`` do.
+
+    :param var: the array to be averaged, with longitude right after
+        latitude
+    :type  var: array
+    :param lat_c: latitude cell centers [°]
+    :type  lat_c: array
+    :param lat_axis: the latitude axis of ``var``
+    :type  lat_axis: int
+    :param keepdims: keep both averaged axes with length 1
+    :type  keepdims: bool
+    :return: the area-weighted mean
+    :rtype:  array
+    """
+
+    lat_axis = lat_axis % np.ndim(var)
+    var = mean_func(var, axis = lat_axis + 1, keepdims = True)
+    var = lat_mean(var, lat_c, axis = lat_axis, keepdims = True)
+    if not keepdims:
+        var = np.squeeze(var, axis = (lat_axis, lat_axis + 1))
+    return var
+
+
+def diurn_mean(var, plot_type, lat_c = None):
+    """
+    Average a ``diurn`` slice over time of day (axis 1).
+
+    Any spatial mean the plot type takes is done first and kept with
+    length 1, so the order of the NaN-skipping means is longitude, then
+    latitude (area-weighted), then time of day, then time. Averaging in
+    a different order gives a different result wherever part of the
+    data is below the surface (NaN).
+
+    :param var: diurn data with time of day on axis 1, latitude on the
+        second-to-last axis and longitude on the last axis (e.g.,
+        ``[time, tod, lev, lat, lon]``)
+    :type  var: array
+    :param plot_type: MarsPlot plot type (e.g., ``2D_lat_lev``)
+    :type  plot_type: str
+    :param lat_c: latitude cell centers [°] of ``var``, needed for
+        meridional and area means
+    :type  lat_c: array
+    :return: ``var`` averaged over time of day
+    :rtype:  array
+    """
+
+    if plot_type in ZONAL_THEN_TIME_PLOTS:
+        var = mean_func(var, axis = -1, keepdims = True)
+    elif plot_type in MERIDIONAL_THEN_TIME_PLOTS:
+        var = lat_mean(var, lat_c, axis = -2, keepdims = True)
+    elif plot_type in AREA_THEN_TIME_PLOTS:
+        var = area_mean(var, lat_c, keepdims = True)
+    return mean_func(var, axis = 1)
 
 
 def topography_for_overlay(lon, zsurf, var):
@@ -776,6 +892,27 @@ def MY_func(Ls_cont):
     return (Ls_cont)//(360.)+1
 
 
+def lon_as_requested(lon_360, lon_query):
+    """
+    Express a 0-360 grid longitude the way it was requested.
+
+    A negative request (e.g., -40) is labeled in -180/180 (-39.4), and
+    any other request (e.g., 200) in 0-360 (198.1), so the label reads
+    like the value the user typed.
+
+    :param lon_360: grid longitude in 0-360
+    :type  lon_360: float
+    :param lon_query: requested longitude
+    :type  lon_query: float
+    :return: ``lon_360`` in the requested convention
+    :rtype:  float
+    """
+
+    if lon_query < 0 and lon_360 > 180:
+        return lon_360 - 360.
+    return lon_360
+
+
 def get_lon_index(lon_query_180, lons):
     """
     Returns the indices for a range of longitudes in a file.
@@ -817,7 +954,8 @@ def get_lon_index(lon_query_180, lons):
                 # Get closest value
                 lon_query_360 = lon180_to_360(lon_query_180)
                 loni = np.argmin(abs(lon_query_360-lons))
-                txt_lon = f", lon={lon360_to_180(lons[loni]):.1f}"
+                txt_lon = (f", lon="
+                           f"{lon_as_requested(lons[loni], lon_query_180):.1f}")
 
         elif lon_query_180.size == 2:
             # If range of longitudes provided. Convert each end
@@ -827,20 +965,26 @@ def get_lon_index(lon_query_180, lons):
             loni_bounds = np.array([np.argmin(abs(lon_query_360[0]-lons)),
                                     np.argmin(abs(lon_query_360[1]-lons))])
             # Longitude should be increasing for extraction # TODO
+            if (loni_bounds[0] == loni_bounds[1]
+               and lon_query_180[0] != lon_query_180[1]):
+                # Both ends snap to one point (e.g., -180,180 or 0,360):
+                # the full circle, with each longitude counted once
+                loni = np.arange(0, Nlon)
             # Normal case (e.g., -45°W > 45°E)
-            if loni_bounds[0] < loni_bounds[1]:
+            elif loni_bounds[0] <= loni_bounds[1]:
                 loni = np.arange(loni_bounds[0], loni_bounds[1] + 1)
             else:
                 # Loop around (e.g., 160°E > -40°W)
                 loni = np.append(np.arange(loni_bounds[0], len(lons)),
                                  np.arange(0, loni_bounds[1] + 1))
 
-            lon_bounds = lons[loni_bounds]
-            lon_bounds_180 = np.where(lon_bounds > 180, lon_bounds - 360.,
-                                      lon_bounds)
-            # Longitude should be increasing for display
-            txt_lon = (f", lon=avg[{lon_bounds_180[0]:.1f}"
-                       f"<->{lon_bounds_180[1]:.1f}]")
+            # Label each end in the convention it was requested in
+            lon_bounds = [lon_as_requested(lons[i], q)
+                          for i, q in zip(loni_bounds, lon_query_180)]
+            txt_lon = (f", lon=avg[{lon_bounds[0]:.1f}"
+                       f"<->{lon_bounds[1]:.1f}]")
+            if len(loni) == Nlon:
+                txt_lon = ", zonal avg"
     else:
         # =========== Legacy Format ===========
         # Lon = -180/180
@@ -860,7 +1004,12 @@ def get_lon_index(lon_query_180, lons):
             # If range of longitudes provided
             loni_bounds = np.array([np.argmin(abs(lon_query_180[0]-lons)),
                                     np.argmin(abs(lon_query_180[1]-lons))])
-            if loni_bounds[0] < loni_bounds[1]:
+            if (loni_bounds[0] == loni_bounds[1]
+               and lon_query_180[0] != lon_query_180[1]):
+                # Both ends snap to one point (e.g., -180,180): the full
+                # circle, with each longitude counted once
+                loni = np.arange(0, Nlon)
+            elif loni_bounds[0] <= loni_bounds[1]:
                 # Normal case (e.g., -45 °W > 45 °E)
                 loni = np.arange(loni_bounds[0], loni_bounds[1]+1)
             else:
@@ -869,6 +1018,8 @@ def get_lon_index(lon_query_180, lons):
                                  np.arange(0, loni_bounds[1]+1))
             txt_lon = (f", lon=avg[{lons[loni_bounds[0]]:.1f}"
                        f"<->{lons[loni_bounds[1]]:.1f}]")
+            if len(loni) == Nlon:
+                txt_lon = ", zonal avg"
 
     #.. note:: if lon dimension is degenerate, e.g. (time,lev,lat,1)
     # loni must be a scalar, otherwise
@@ -2620,14 +2771,14 @@ class Fig_2D(object):
 
             # Extract data and close file
             if f_type == "diurn":
-                # Do time of day average first
+                # Average over time of day (spatial means first)
                 var = f.variables[var_name][ti, todi, lati, loni].reshape(
                     len(np.atleast_1d(ti)),
                     len(np.atleast_1d(todi)),
                     len(np.atleast_1d(lati)),
                     len(np.atleast_1d(loni))
                 )
-                var = mean_func(var, axis = 1)
+                var = diurn_mean(var, plot_type, lat[lati])
             else:
                 var = f.variables[var_name][ti, lati, loni].reshape(
                     len(np.atleast_1d(ti)),
@@ -2635,7 +2786,6 @@ class Fig_2D(object):
                     len(np.atleast_1d(loni))
                 )
             f.close()
-            w = area_weights_deg(var.shape, lat[lati])
 
             # Return data
             if plot_type == "2D_lon_lat":
@@ -2645,7 +2795,7 @@ class Fig_2D(object):
                 # Transpose, X dim must be in last column of variable
                 return t_stack, lat, mean_func(var, axis = 2).T, var_info
             if plot_type == "2D_lon_time":
-                return (lon, t_stack, np.average(var, weights = w, axis = 1),
+                return (lon, t_stack, lat_mean(var, lat[lati], axis = 1),
                         var_info)
 
         # ====== [time, lev, lat, lon] =======
@@ -2723,7 +2873,7 @@ class Fig_2D(object):
                     self.fdim_txt += temp_txt
 
             if f_type == "diurn":
-                # time of day average
+                # Average over time of day (spatial means first)
                 var = f.variables[var_name][ti, todi, zi, lati, loni].reshape(
                     len(np.atleast_1d(ti)),
                     len(np.atleast_1d(todi)),
@@ -2731,7 +2881,7 @@ class Fig_2D(object):
                     len(np.atleast_1d(lati)),
                     len(np.atleast_1d(loni))
                 )
-                var = mean_func(var, axis = 1)
+                var = diurn_mean(var, plot_type, lat[lati])
 
             else:
                 var = f.variables[var_name][ti, zi, lati, loni].reshape(
@@ -2742,7 +2892,6 @@ class Fig_2D(object):
                 )
 
             f.close()
-            w = area_weights_deg(var.shape, lat[lati])
 
             if plot_type == "2D_lon_lat":
                 return (lon, lat,
@@ -2759,18 +2908,17 @@ class Fig_2D(object):
                         var_info)
             if plot_type == "2D_lon_lev":
                 return (lon, levs,
-                        mean_func(np.average(var,weights = w, axis = 2),
+                        mean_func(lat_mean(var, lat[lati], axis = 2),
                                     axis = 0),
                         var_info)
             if plot_type == "2D_time_lev":
                 # Transpose
                 return (t_stack, levs,
-                        mean_func(np.average(var, weights = w, axis = 2),
-                                    axis = 2).T,
+                        area_mean(var, lat[lati]).T,
                         var_info)
             if plot_type == "2D_lon_time":
                 return (lon,t_stack,
-                        mean_func(np.average(var, weights = w, axis = 2),
+                        mean_func(lat_mean(var, lat[lati], axis = 2),
                                     axis = 1),
                         var_info)
 
@@ -4504,12 +4652,11 @@ class Fig_1D(object):
                 len(np.atleast_1d(lati)), len(np.atleast_1d(loni))
             )
             f.close()
-            w = area_weights_deg(var.shape, lat[lati])
 
             if plot_type == "1D_lat":
                 return lat, mean_func(var, axis = 1), var_info
             if plot_type == "1D_lon":
-                return lon, np.average(var, weights = w, axis = 0), var_info
+                return lon, lat_mean(var, lat[lati], axis = 0), var_info
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         #       ~~ For 1D_time, 1D_lat, 1D_lon, and 1D_lev only ~~~
@@ -4554,7 +4701,7 @@ class Fig_1D(object):
                         len(np.atleast_1d(todi)),
                         len(np.atleast_1d(lati)),
                         len(np.atleast_1d(loni)))
-                    var = mean_func(var, axis = 1)
+                    var = diurn_mean(var, plot_type, lat[lati])
                 else:
                     var = f.variables[var_name][ti, lati, loni].reshape(
                         len(np.atleast_1d(ti)),
@@ -4562,7 +4709,6 @@ class Fig_1D(object):
                         len(np.atleast_1d(loni)))
                 f.close()
 
-                w = area_weights_deg(var.shape, lat[lati])
 
                 if plot_type == "1D_lat":
                     return (lat,
@@ -4570,13 +4716,12 @@ class Fig_1D(object):
                             var_info)
                 if plot_type == "1D_lon":
                     return (lon,
-                            mean_func(np.average(var, weights = w, axis = 1),
+                            mean_func(lat_mean(var, lat[lati], axis = 1),
                                       axis = 0),
                             var_info)
                 if plot_type == "1D_time":
                     return (t_stack,
-                            mean_func(np.average(var, weights = w, axis = 1),
-                                      axis = 1),
+                            area_mean(var, lat[lati]),
                             var_info)
 
             # ====== [time, lev, lat, lon] =======
@@ -4651,7 +4796,7 @@ class Fig_1D(object):
                 # It used to be that var = f.variables[var_name]
 
                 if f_type == "diurn":
-                    # Do time of day average first
+                    # Average over time of day (spatial means first)
                     var0 = f.variables[var_name][ti, todi, zi, lati, loni]
                     var = var0.reshape(
                         len(np.atleast_1d(ti)),
@@ -4660,7 +4805,7 @@ class Fig_1D(object):
                         len(np.atleast_1d(lati)),
                         len(np.atleast_1d(loni))
                     )
-                    var = mean_func(var, axis = 1)
+                    var = diurn_mean(var, plot_type, lat[lati])
                 else:
                     reshape_shape = [len(np.atleast_1d(ti)),
                                      len(np.atleast_1d(zi)),
@@ -4670,7 +4815,6 @@ class Fig_1D(object):
                         reshape_shape)
                 f.close()
 
-                w = area_weights_deg(var.shape, lat[lati])
 
                 if plot_type == "1D_lat":
                     return (lat,
@@ -4678,15 +4822,15 @@ class Fig_1D(object):
                             var_info)
                 if plot_type == "1D_lon":
                     return (lon,
-                            mean_func(mean_func(np.average(var, weights = w, axis = 2), axis = 1), axis = 0),
+                            mean_func(mean_func(lat_mean(var, lat[lati], axis = 2), axis = 1), axis = 0),
                             var_info)
                 if plot_type == "1D_time":
                     return (t_stack,
-                            mean_func(mean_func(np.average(var, weights = w, axis = 2), axis = 2), axis = 1),
+                            mean_func(area_mean(var, lat[lati]), axis = 1),
                             var_info)
                 if plot_type == "1D_lev":
                     return (levs,
-                            mean_func(mean_func(np.average(var, weights = w, axis = 2), axis = 2), axis = 0),
+                            mean_func(area_mean(var, lat[lati]), axis = 0),
                             var_info)
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -4731,9 +4875,8 @@ class Fig_1D(object):
                 var = var0.reshape(reshape_shape)
                 f.close()
 
-                w = area_weights_deg(var.shape, lat[lati])
                 return (tod,
-                        mean_func(mean_func(np.average(var, weights = w, axis = 2), axis = 2), axis = 0),
+                        mean_func(area_mean(var, lat[lati]), axis = 0),
                         var_info)
 
             # ====== [time, lev, lat, lon] =======
@@ -4782,10 +4925,9 @@ class Fig_1D(object):
                     reshape_shape)
                 f.close()
 
-                w = area_weights_deg(var.shape, lat[lati])
 
                 return (tod,
-                        mean_func(mean_func(mean_func(np.average(var, weights = w, axis = 3), axis = 3), axis = 2), axis = 0),
+                        mean_func(mean_func(area_mean(var, lat[lati]), axis = 2), axis = 0),
                         var_info)
 
 
