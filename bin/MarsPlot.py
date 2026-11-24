@@ -892,6 +892,27 @@ def MY_func(Ls_cont):
     return (Ls_cont)//(360.)+1
 
 
+def lon_as_requested(lon_360, lon_query):
+    """
+    Express a 0-360 grid longitude the way it was requested.
+
+    A negative request (e.g., -40) is labeled in -180/180 (-39.4), and
+    any other request (e.g., 200) in 0-360 (198.1), so the label reads
+    like the value the user typed.
+
+    :param lon_360: grid longitude in 0-360
+    :type  lon_360: float
+    :param lon_query: requested longitude
+    :type  lon_query: float
+    :return: ``lon_360`` in the requested convention
+    :rtype:  float
+    """
+
+    if lon_query < 0 and lon_360 > 180:
+        return lon_360 - 360.
+    return lon_360
+
+
 def get_lon_index(lon_query_180, lons):
     """
     Returns the indices for a range of longitudes in a file.
@@ -933,7 +954,8 @@ def get_lon_index(lon_query_180, lons):
                 # Get closest value
                 lon_query_360 = lon180_to_360(lon_query_180)
                 loni = np.argmin(abs(lon_query_360-lons))
-                txt_lon = f", lon={lon360_to_180(lons[loni]):.1f}"
+                txt_lon = (f", lon="
+                           f"{lon_as_requested(lons[loni], lon_query_180):.1f}")
 
         elif lon_query_180.size == 2:
             # If range of longitudes provided. Convert each end
@@ -943,20 +965,26 @@ def get_lon_index(lon_query_180, lons):
             loni_bounds = np.array([np.argmin(abs(lon_query_360[0]-lons)),
                                     np.argmin(abs(lon_query_360[1]-lons))])
             # Longitude should be increasing for extraction # TODO
+            if (loni_bounds[0] == loni_bounds[1]
+               and lon_query_180[0] != lon_query_180[1]):
+                # Both ends snap to one point (e.g., -180,180 or 0,360):
+                # the full circle, with each longitude counted once
+                loni = np.arange(0, Nlon)
             # Normal case (e.g., -45°W > 45°E)
-            if loni_bounds[0] < loni_bounds[1]:
+            elif loni_bounds[0] <= loni_bounds[1]:
                 loni = np.arange(loni_bounds[0], loni_bounds[1] + 1)
             else:
                 # Loop around (e.g., 160°E > -40°W)
                 loni = np.append(np.arange(loni_bounds[0], len(lons)),
                                  np.arange(0, loni_bounds[1] + 1))
 
-            lon_bounds = lons[loni_bounds]
-            lon_bounds_180 = np.where(lon_bounds > 180, lon_bounds - 360.,
-                                      lon_bounds)
-            # Longitude should be increasing for display
-            txt_lon = (f", lon=avg[{lon_bounds_180[0]:.1f}"
-                       f"<->{lon_bounds_180[1]:.1f}]")
+            # Label each end in the convention it was requested in
+            lon_bounds = [lon_as_requested(lons[i], q)
+                          for i, q in zip(loni_bounds, lon_query_180)]
+            txt_lon = (f", lon=avg[{lon_bounds[0]:.1f}"
+                       f"<->{lon_bounds[1]:.1f}]")
+            if len(loni) == Nlon:
+                txt_lon = ", zonal avg"
     else:
         # =========== Legacy Format ===========
         # Lon = -180/180
@@ -976,7 +1004,12 @@ def get_lon_index(lon_query_180, lons):
             # If range of longitudes provided
             loni_bounds = np.array([np.argmin(abs(lon_query_180[0]-lons)),
                                     np.argmin(abs(lon_query_180[1]-lons))])
-            if loni_bounds[0] < loni_bounds[1]:
+            if (loni_bounds[0] == loni_bounds[1]
+               and lon_query_180[0] != lon_query_180[1]):
+                # Both ends snap to one point (e.g., -180,180): the full
+                # circle, with each longitude counted once
+                loni = np.arange(0, Nlon)
+            elif loni_bounds[0] <= loni_bounds[1]:
                 # Normal case (e.g., -45 °W > 45 °E)
                 loni = np.arange(loni_bounds[0], loni_bounds[1]+1)
             else:
@@ -985,6 +1018,8 @@ def get_lon_index(lon_query_180, lons):
                                  np.arange(0, loni_bounds[1]+1))
             txt_lon = (f", lon=avg[{lons[loni_bounds[0]]:.1f}"
                        f"<->{lons[loni_bounds[1]]:.1f}]")
+            if len(loni) == Nlon:
+                txt_lon = ", zonal avg"
 
     #.. note:: if lon dimension is degenerate, e.g. (time,lev,lat,1)
     # loni must be a scalar, otherwise

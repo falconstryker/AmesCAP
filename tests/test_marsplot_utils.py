@@ -95,6 +95,31 @@ class TestLongitudeRange(unittest.TestCase):
         self.assertEqual(len(loni), 44)
         self.assertIn('159.4<->-39.4', txt)
 
+    def test_range_past_180_keeps_0_360_label(self):
+        # Regression: 100,200 was labeled 99.0<->-161.0
+        loni, txt = MarsPlot.get_lon_index(np.array([100., 200.]), self.lons)
+        self.assertEqual(len(loni), 28)
+        self.assertIn('99.4<->200.6', txt)
+
+    def test_single_lon_keeps_requested_convention(self):
+        _, txt = MarsPlot.get_lon_index(np.array(200.), self.lons)
+        self.assertIn('lon=200.6', txt)
+        _, txt = MarsPlot.get_lon_index(np.array(-160.), self.lons)
+        self.assertIn('lon=-159.4', txt)
+
+    def test_full_circle_counts_each_longitude_once(self):
+        # Regression: both ends snapped to one point, and the wrap
+        # counted that point twice (Nlon + 1 indices)
+        for req in ([-180., 180.], [0., 360.]):
+            loni, txt = MarsPlot.get_lon_index(np.array(req), self.lons)
+            np.testing.assert_array_equal(np.sort(loni),
+                                          np.arange(len(self.lons)))
+            self.assertIn('zonal avg', txt)
+
+    def test_single_point_range(self):
+        loni, _ = MarsPlot.get_lon_index(np.array([10., 10.]), self.lons)
+        self.assertEqual(np.atleast_1d(loni).size, 1)
+
     def test_range_within_eastern_hemisphere(self):
         loni, _ = MarsPlot.get_lon_index(np.array([10., 50.]), self.lons)
         self.assertEqual(len(loni), 12)
