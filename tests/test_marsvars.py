@@ -300,6 +300,10 @@ class TestMarsVars(BaseTestCase):
         try:
             var = nc.variables[output_var]
             self.assertIn('/m', var.units, "Units should contain '/m'")
+            # Regression: units were written as "<unit>/m]" or "/m]"
+            orig_units = getattr(nc.variables[actual_var], 'units', '').strip("[] ")
+            expected = f"{orig_units}/m" if orig_units else "1/m"
+            self.assertEqual(var.units, expected)
             self.assertIn('vertical gradient', var.long_name.lower(), "Long name should mention vertical gradient")
         finally:
             nc.close()
@@ -335,6 +339,10 @@ class TestMarsVars(BaseTestCase):
             # Verify units
             self.assertIn('/m2', nc.variables[output_var].units, 
                           "Column integrated variable should have units with /m2")
+            # A mixing ratio in kg/kg integrates to kg/m2
+            # (and a variable with no units gives kg/m2)
+            if getattr(nc.variables[actual_var], 'units', '') in ('kg/kg', ''):
+                self.assertEqual(nc.variables[output_var].units, 'kg/m2')
         finally:
             nc.close()
 

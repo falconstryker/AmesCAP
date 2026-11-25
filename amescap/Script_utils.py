@@ -187,6 +187,8 @@ def print_varContent(fileNcdf, list_varfull, print_stat=False):
                 f"__________________________|_______________|_______________|_______________|"
                 f"{Nclr}")
 
+        # Area-weighted means, printed below the table, one per variable
+        weighted_means = []
         for varfull in list_varfull:
             Wmean = None  # Initialize before try block
             try:
@@ -228,6 +230,8 @@ def print_varContent(fileNcdf, list_varfull, print_stat=False):
                     
                     print(f"{Cyan}{varfull:>26s}|{Min:>15g}|{Mean:>15g}|"
                           f"{Max:>15g}|{Nclr}")
+                    if Wmean is not None:
+                        weighted_means.append((varfull, Wmean))
 
                     if cmd_txt == "areo":
                         # If variable is areo then print modulo
@@ -262,10 +266,13 @@ def print_varContent(fileNcdf, list_varfull, print_stat=False):
             # Last line for the table
             print(f"{Cyan}__________________________|_______________|__"
                   f"_____________|_______________|")
-            # Only print weighted mean if we successfully calculated one
-            if Wmean is not None:
-                print(f"          Global area-weighted mean {varfull}: "
-                      f"{Wmean:.3f}{Nclr}\n")
+            # Print each weighted mean that was calculated. Use %g so
+            # that small values (e.g., 3.8e-4) are not printed as 0.000
+            for name, wmean in weighted_means:
+                print(f"          Global area-weighted mean {name}: "
+                      f"{wmean:g}{Nclr}")
+            if weighted_means:
+                print()
         f.close()
 
 

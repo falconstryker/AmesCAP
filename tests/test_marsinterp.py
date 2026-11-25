@@ -269,6 +269,12 @@ class TestMarsInterp(BaseTestCase):
         # Check that the file has the expected structure
         self.check_netcdf_structure(output_file, "pstd")
     
+    def test_custom_extension_leading_underscore(self):
+        """-ext _name gives one underscore, the same as -ext name"""
+        result = self.run_mars_interp(['01336.atmos_average.nc', '-ext', '_custom_test2'])
+        self.assertIn("Completed in", result.stdout, "Missing completion message")
+        self.check_file_exists("01336.atmos_average_pstd_custom_test2.nc")
+
     def test_multiple_files(self):
         """Test interpolating multiple files at once"""
         input_files = ['01336.atmos_average.nc', '01336.atmos_daily.nc']

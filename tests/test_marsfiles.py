@@ -409,6 +409,53 @@ class TestMarsFiles(BaseTestCase):
         
         print("Bin diurn operation succeeded")
 
+    def test_bin_diurn_partial_sol(self):
+        """-bd drops a partial sol at the end with a warning"""
+        # Regression: a file cut at an Ls (e.g., by -split) that did not
+        # hold whole sols gave an output file with no data variables
+        src = Dataset(os.path.join(self.test_dir, '01336.atmos_daily.nc'), 'r')
+        partial = os.path.join(self.test_dir, '01336.partial_daily.nc')
+        dst = Dataset(partial, 'w', format='NETCDF4_CLASSIC')
+        try:
+            n_drop = 3
+            n_time = len(src.dimensions['time']) - n_drop
+            for name, dim in src.dimensions.items():
+                if name == 'time':
+                    dst.createDimension(name, n_time)
+                else:
+                    dst.createDimension(
+                        name, None if dim.isunlimited() else len(dim))
+            for name, var in src.variables.items():
+                out = dst.createVariable(name, var.dtype, var.dimensions)
+                out.setncatts({k: var.getncattr(k) for k in var.ncattrs()})
+                if var.dimensions and var.dimensions[0] == 'time':
+                    out[:] = var[:n_time]
+                else:
+                    out[:] = var[:]
+            time = src.variables['time'][:n_time]
+            steps_per_sol = int(round(1 / (time[1] - time[0])))
+        finally:
+            src.close()
+            dst.close()
+
+        result = self.run_mars_files(['01336.partial_daily.nc', '-bd'])
+        self.assertEqual(result.returncode, 0, "Bin diurn command failed")
+        self.assertIn('does not hold a whole number of sols', result.stdout)
+
+        output_file = self.check_file_exists(
+            '01336.partial_daily_to_diurn.nc')
+        nc = Dataset(output_file, 'r')
+        try:
+            tod_dims = [d for d in nc.dimensions if 'time_of_day' in d]
+            self.assertEqual(len(tod_dims), 1)
+            self.assertEqual(len(nc.dimensions[tod_dims[0]]), steps_per_sol)
+            binned = [v for v in nc.variables
+                      if tod_dims[0] in nc.variables[v].dimensions
+                      and v != tod_dims[0]]
+            self.assertTrue(binned, "No variables were binned by time of day")
+        finally:
+            nc.close()
+
     def test_split_file_by_areo(self):
         """Test split operation on average file by Ls (areo)"""
         # First check what Ls values are available in the file
@@ -1019,6 +1066,12 @@ class TestMarsFiles(BaseTestCase):
         output_file = self.check_file_exists('01336.atmos_average_zavg_custom.nc')
         
         print("Custom extension operation succeeded")
+
+    def test_custom_extension_leading_underscore(self):
+        """-ext _name gives one underscore, the same as -ext name"""
+        result = self.run_mars_files(['01336.atmos_average.nc', '-zavg', '-ext', '_custom2'])
+        self.assertEqual(result.returncode, 0, "Zonal average with custom extension command failed")
+        self.check_file_exists('01336.atmos_average_zavg_custom2.nc')
 
     def test_zzz_output_cleanup_stats(self):
         """

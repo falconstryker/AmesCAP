@@ -125,6 +125,42 @@ class TestLongitudeRange(unittest.TestCase):
         self.assertEqual(len(loni), 12)
 
 
+class FakeAxis:
+    def __init__(self, data, units=None):
+        self.data = np.asarray(data)
+        if units is not None:
+            self.units = units
+
+    def __getitem__(self, key):
+        return self.data[key]
+
+
+class FakeFile:
+    def __init__(self, **variables):
+        self.variables = variables
+
+
+class TestVerticalLevels(unittest.TestCase):
+    def test_pfull_in_mb_is_converted_to_pa(self):
+        # Regression: pfull in mb was plotted on an axis labeled Pa
+        f = FakeFile(pfull=FakeAxis([0.01, 1.0, 7.0], units='mb'))
+        np.testing.assert_allclose(MarsPlot.vertical_levels(f, 'pfull'),
+                                   [1.0, 100.0, 700.0])
+
+    def test_pstd_in_pa_is_unchanged(self):
+        f = FakeFile(pstd=FakeAxis([1000.0, 50.0], units='Pa'))
+        np.testing.assert_array_equal(MarsPlot.vertical_levels(f, 'pstd'),
+                                      [1000.0, 50.0])
+
+    def test_altitude_and_no_units_are_unchanged(self):
+        f = FakeFile(zstd=FakeAxis([0.0, 5000.0], units='m'),
+                     zagl=FakeAxis([0.0, 15.0]))
+        np.testing.assert_array_equal(MarsPlot.vertical_levels(f, 'zstd'),
+                                      [0.0, 5000.0])
+        np.testing.assert_array_equal(MarsPlot.vertical_levels(f, 'zagl'),
+                                      [0.0, 15.0])
+
+
 class TestDiurnMean(unittest.TestCase):
     # [time=1, tod=2, lat=1, lon=2]; one below-ground NaN at tod 0, lon 1.
     # Longitude first: tod 0 -> 1, tod 1 -> (3 + 5)/2 = 4, mean = 2.5.
