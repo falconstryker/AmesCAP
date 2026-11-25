@@ -164,6 +164,32 @@ def rescale_units(units, old, new):
             return units[:-len(suffix_old)] + suffix_new
     return f"{units} {old}/{new}".strip()
 
+
+def per_meter_units(units):
+    """
+    Units string for the vertical derivative of a quantity.
+
+    E.g., ``per_meter_units("K")`` returns ``"K/m"``, and a quantity
+    with no units returns ``"1/m"``. Square brackets are removed.
+    """
+    units = str(units).strip().strip("[]").strip()
+    return f"{units}/m" if units else "1/m"
+
+
+def column_units(units):
+    """
+    Units string for the column integral of a quantity, int(q dp/g).
+
+    Integrating over pressure divided by gravity multiplies the units
+    by kg/m2, so a mixing ratio ``kg/kg`` becomes ``kg/m2``. Other
+    units get ``kg/m2`` appended (e.g., ``op/level`` becomes
+    ``op/level kg/m2``).
+    """
+    units = str(units).strip().strip("[]").strip()
+    if units.endswith("/kg"):
+        return f"{units[:-len('/kg')]}/m2"
+    return f"{units} kg/m2".strip()
+
 # List of supported variables for [-add --add_variable]
 cap_str = " (derived w/CAP)"
 
@@ -2735,7 +2761,7 @@ def main():
                 lname_text, unit_text = get_longname_unit(f, actual_var_name)
                 # Remove the last ] to update the units (e.g [kg]
                 # to [kg/m])
-                new_unit = f"{unit_text[:-2]}/m]"
+                new_unit = per_meter_units(unit_text)
                 new_lname = f"vertical gradient of {lname_text}"
 
                 # temp and ps are always required. Get dimension
@@ -3001,7 +3027,7 @@ def main():
 
                 lname_text, unit_text = get_longname_unit(f, actual_var_name)
                 # turn "kg/kg" -> "kg/m2"
-                new_unit = f"{unit_text[:-3]}/m2"
+                new_unit = column_units(unit_text)
                 new_lname = f"column integration of {lname_text}"
 
                 # temp and ps always required

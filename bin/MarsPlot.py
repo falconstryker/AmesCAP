@@ -82,6 +82,31 @@ PRESSURE_CONVERSIONS = {
     "mbar": {"scale": 1e-2,   "label": "Pressure [mbar]"},
 }
 
+# Pressure units, other than Pa, that vertical axes may be stored in
+# (e.g., the MGCM writes ``pfull`` and ``phalf`` in mb)
+PRESSURE_UNITS_TO_PA = {"mb": 100., "mbar": 100., "hpa": 100.}
+
+
+def vertical_levels(f, name):
+    """
+    Read a vertical axis, converting pressure in mb or hPa to Pa.
+
+    MarsPlot labels, selects and limits pressure axes in Pa, so a
+    ``pfull`` axis stored in mb is converted to Pa when it is read.
+
+    :param f: an open netCDF file
+    :type  f: netCDF4.Dataset
+    :param name: name of the vertical axis (e.g., ``pfull``, ``pstd``)
+    :type  name: str
+    :return: the axis values, in Pa for pressure axes
+    :rtype:  array
+    """
+
+    levs = f.variables[name][:]
+    units = str(getattr(f.variables[name], "units", "")).strip().lower()
+    return levs * PRESSURE_UNITS_TO_PA.get(units, 1.)
+
+
 ALTITUDE_CONVERSIONS = {
     "m":  {"scale": 1.0,    "label": "Altitude [m]"},
     "km": {"scale": 1e-3,   "label": "Altitude [km]"},
@@ -2816,7 +2841,7 @@ class Fig_2D(object):
                 self.vert_unit = "m"
 
             # Initialize dims
-            levs = f.variables[dim_info[1]][:]
+            levs = vertical_levels(f, dim_info[1])
             zi = np.arange(0, len(levs))
             t = f.variables["time"][:]
             LsDay = areo_by_time(f.variables["areo"])
@@ -4738,7 +4763,7 @@ class Fig_1D(object):
                     self.vert_unit = "m"
 
                 # Initialize dims
-                levs = f.variables[dim_info[1]][:]
+                levs = vertical_levels(f, dim_info[1])
                 zi = np.arange(0, len(levs))
                 t = f.variables["time"][:]
                 LsDay = areo_by_time(f.variables["areo"])
@@ -4887,13 +4912,13 @@ class Fig_1D(object):
                 dim_info == ("time", tod_dim_name, "zagl", "lat", "lon") or
                 dim_info == ("time", tod_dim_name, "zgrid", "lat", "lon")):
 
-                if dim_info[1] in ["pfull", "level", "pstd"]:
+                if dim_info[2] in ["pfull", "level", "pstd"]:
                     self.vert_unit = "Pa"
-                if dim_info[1] in ["zagl", "zstd", "zgrid"]:
+                if dim_info[2] in ["zagl", "zstd", "zgrid"]:
                     self.vert_unit = "m"
 
                 # Initialize dims
-                levs = f.variables[dim_info[2]][:]
+                levs = vertical_levels(f, dim_info[2])
 
                 t = f.variables["time"][:]
                 LsDay = areo_by_time(f.variables["areo"])

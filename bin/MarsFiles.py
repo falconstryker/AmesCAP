@@ -498,11 +498,6 @@ parser.add_argument('-tide', '--tide_decomp', action=ExtAction,
     parser=parser,
     nargs='+', type=int,
     help=(
-        f"{Red}"
-        f"REQUIRES SPECIAL INSTALL:\nSee 'Spectral Analysis "
-        f"Capabilities' in the installation instructions at \n"
-        f"https://amescap.readthedocs.io/en/latest/installation.html"
-        f"{Nclr}\n"
         f"Use fourier decomposition to break down a variable into N "
         f"harmonics to isolate the diurnal (N=1), semi-diurnal (N=2), etc. phase and "
         f"amplitude of a surface or 3D field.\nOnly works with 'diurn' files.\nReturns the phase"
@@ -759,8 +754,9 @@ out_ext = (f"{args.time_shift_ext}"
             )
 
 if args.extension:
-    # Append extension, if any:
-    out_ext = (f"{out_ext}_{args.extension}")
+    # Append extension, if any. Leading underscores are optional:
+    # -ext my_name and -ext _my_name both give ..._my_name.nc
+    out_ext = (f"{out_ext}_{args.extension.lstrip('_')}")
 
 
 # ------------------------------------------------------
@@ -1594,6 +1590,22 @@ def main():
             time_increment = time[1] - time[0]
             dt_per_day = int(np.round(1/time_increment))
 
+            # Binning by time of day needs whole sols. Drop a partial
+            # sol at the end (e.g., after -split cuts at an Ls).
+            n_whole = (len(time) // dt_per_day) * dt_per_day
+            if n_whole == 0:
+                print(f"{Red}***Error*** {input_file_name} holds less than "
+                      f"one sol of data ({len(time)} time steps, "
+                      f"{dt_per_day} per sol){Nclr}")
+                fdaily.close()
+                sys.exit(1)
+            if n_whole < len(time):
+                print(f"{Yellow}*** Warning *** {input_file_name} does not "
+                      f"hold a whole number of sols. Dropping the last "
+                      f"{len(time) - n_whole} time step(s), sol "
+                      f"{time[n_whole]:.2f} to {time[-1]:.2f}{Nclr}")
+                time = time[:n_whole]
+
             # Define a netcdf object from the netcdf wrapper module
             fnew = Ncdf(output_file_name)
             # Copy all dimensions but "time" from the old file to the
@@ -1633,7 +1645,8 @@ def main():
                     print(f"{Cyan}Processing: {ivar}{Nclr}")
                     dims_in = varNcf.dimensions
                     dims_out = (dims_in[0],)+(tod_name,)+dims_in[1:]
-                    var_out = daily_to_diurn(varNcf[:], time[0:dt_per_day])
+                    var_out = daily_to_diurn(varNcf[:n_whole, ...],
+                                             time[0:dt_per_day])
                     if bin_period != 1:
                         # dt is 1 sol between two diurn timesteps
                         var_out = daily_to_average(var_out, 1., bin_period)

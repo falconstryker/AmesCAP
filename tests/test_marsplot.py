@@ -267,6 +267,13 @@ HOLD OFF
         for check in stats_checks:
             self.assertIn(check, result.stdout.lower(), f"Statistics output missing '{check}'")
     
+    def test_statistics_weighted_mean_for_each_variable(self):
+        """-stats prints an area-weighted mean for every variable"""
+        # Regression: only the last variable's weighted mean was printed
+        result = self.run_mars_plot(['-i', '01336.atmos_average.nc', '-stats', 'ts', 'ps'])
+        for var in ('ts', 'ps'):
+            self.assertIn(f'Global area-weighted mean {var}:', result.stdout)
+
     def test_run_template(self):
         """Test running MarsPlot with a template file"""
         result = self.run_mars_plot(['Custom.in'])

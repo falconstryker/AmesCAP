@@ -195,8 +195,8 @@ parser.add_argument('-ext', '--extension', type=str, default=None,
         f"CAP to create a new file with the extension name specified "
         f"here.\n"
         f"{Green}Example:\n"
-        f"> MarsInterp 01336.atmos_average.nc -t pstd -ext _my_pstd\n"
-        f"{Blue}(Produces 01336.atmos_average_my_pstd.nc and "
+        f"> MarsInterp 01336.atmos_average.nc -t pstd -ext my_grid\n"
+        f"{Blue}(Produces 01336.atmos_average_pstd_my_grid.nc and "
         f"preserves all other files)"
         f"{Nclr}\n\n"
     )
@@ -438,8 +438,11 @@ def main():
         # Append extension, if any
         # (os.path.join keeps an absolute input path as given)
         if args.extension:
+            # Leading underscores are optional: -ext my_grid and
+            # -ext _my_grid both give _pstd_my_grid.nc
+            ext = args.extension.lstrip("_")
             newname = os.path.join(
-                filepath, f"{ifile[:-3]}_{interp_type}_{args.extension}.nc")
+                filepath, f"{ifile[:-3]}_{interp_type}_{ext}.nc")
         else:
             newname = os.path.join(filepath, f"{ifile[:-3]}_{interp_type}.nc")
         out_dir, out_base = os.path.split(newname)
